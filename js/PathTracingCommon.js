@@ -3195,26 +3195,30 @@ void main( void )
 	}	
 	else pixelOffset = vec2( tentFilter(uRandomVec2.x), tentFilter(uRandomVec2.y) );
 	
-	// we must map pixelPos into the range -1.0 to +1.0: (-1.0,-1.0) is bottom-left screen corner, (1.0,1.0) is top-right
-	vec2 pixelPos = ((gl_FragCoord.xy + vec2(0.5) + pixelOffset) / uResolution) * 2.0 - 1.0;
+	// === equirectangular UV in [0,1]^2 (use 2:1 render target) ===
+	vec2 uv01 = (gl_FragCoord.xy + vec2(0.5) + pixelOffset) / uResolution;
 
-	vec3 rayDir = uUseOrthographicCamera ? camForward :
-		      normalize( (camRight * pixelPos.x * uULen) + (camUp * pixelPos.y * uVLen) + camForward );
-					       
-	// depth of field
-	vec3 focalPoint = uFocusDistance * rayDir;
-	float randomAngle = rng() * TWO_PI; // pick random point on aperture
-	float randomRadius = rng() * uApertureSize;
-	vec3  randomAperturePos = ((camRight * cos(randomAngle)) + (camUp * sin(randomAngle))) * sqrt(randomRadius);
-	// point on aperture to focal point
-	vec3 finalRayDir = normalize(focalPoint - randomAperturePos);
+	// Map pixel -> spherical direction (lon/lat)
+	float theta = uv01.x * TWO_PI;      // longitude  [0, 2π]
+	float phi   = (1.0 - uv01.y) * PI;  // latitude   [0, π] (flip Y so top = north)
 
-	rayOrigin = cameraPosition + randomAperturePos;
-	rayOrigin += !uUseOrthographicCamera ? vec3(0) : 
-		     (camRight * pixelPos.x * uULen * 100.0) + (camUp * pixelPos.y * uVLen * 100.0);
-					     
-	rayDirection = finalRayDir;
-	
+	// Local camera frame: X=right, Y=up, Z=forward
+	vec3 dirLocal = vec3(
+		cos(theta) * sin(phi),  // +X
+		cos(phi),               // +Y
+		sin(theta) * sin(phi)   // +Z
+	);
+
+	// Build world ray from existing camera basis
+	vec3 rayDir = normalize(
+		dirLocal.x * camRight +
+		dirLocal.y * camUp +
+		dirLocal.z * camForward
+	);
+
+	// For panoramic equirectangular render, do NOT apply thin-lens DOF or orthographic offsets.
+	rayOrigin    = cameraPosition;
+	rayDirection = rayDir;
 
 	SetupScene();
 
@@ -3278,3 +3282,4 @@ void main( void )
 	pc_fragColor = vec4(previousPixel.rgb + currentPixel.rgb, currentPixel.a);
 }
 `;
+
